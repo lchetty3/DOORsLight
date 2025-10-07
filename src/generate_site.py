@@ -469,7 +469,7 @@ DEFAULT_CSS = """:root{--bg:#0b0c10;--surface:#121317;--muted:#9aa0a6;--text:#e5
 :root[data-theme=light]{--bg:#f7f8fb;--surface:#fff;--muted:#5f6774;--text:#111827;--border:#e5e7eb;--shadow:0 6px 18px rgba(0,0,0,.08)}
 :root[data-theme=dark]{--bg:#0b0c10;--surface:#121317;--muted:#9aa0a6;--text:#e5e7eb;--border:#222638}
 *{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;line-height:1.45}
-.container{max-width:1200px;margin:24px auto;padding:0 16px}
+.container{max-width:2000px;margin:24px auto;padding:0 16px}
 .site-header,.site-footer{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
 .site-footer{border-top:1px solid var(--border);border-bottom:none;opacity:.85;margin-top:24px}.brand{font-weight:700;letter-spacing:.2px}
 .nav a{color:var(--text);opacity:.9;text-decoration:none;margin-right:12px}.nav a:hover{opacity:1}
