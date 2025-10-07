@@ -1,18 +1,9 @@
-# DOORS CSV → Static HTML generator (v4)
-# 5‑level hierarchy + inline JS + robust filter/theme + tooltips
+# DOORS CSV → Static HTML generator (v6)
+# Change: On the "Module" level page, render **separate tables per module**.
+# (Other levels keep a single consolidated table.)
 #
-# What changed
-# • Levels are now dynamic and driven by `hierarchy.yaml: levels:`.
-#   Example: ["User Requirement", "System Requirement", "Subsystem", "Module", "Submodule"].
-# • Navigation and level pages are generated for *all* levels in that list, in order.
-# • Filenames for level pages are slugged (spaces → underscores, lowercased), e.g.
-#   levels/system_requirement.html.
-# • Keeps hover tooltips for requirement links, test roll‑ups, link editor, and inline JS.
-# • CSV schemas unchanged (no ModulePath column; links in Incoming/Outgoing).
-#
-# Usage
-#   pip install pyyaml
-#   python generate_site.py --exports ./exports --out ./site --project-name "Your Project"
+# Also includes: dynamic N-level hierarchy (via hierarchy.yaml), inline JS (unescaped),
+# robust filter scoped to nearest <section>, tooltips on req links, working theme toggle.
 
 from __future__ import annotations
 import argparse, csv, html, re
@@ -26,7 +17,7 @@ import yaml  # pip install pyyaml
 class ModuleInfo:
     name: str
     abbrev: str
-    level: str                # e.g., "User Requirement", "System Requirement", ...
+    level: str                # e.g., "User Requirement", "System Requirement", "Subsystem", "Module", "Submodule"
     requirements_module: str
     tests_module: str
     parent_abbrev: Optional[str] = None
@@ -133,12 +124,10 @@ def load_hierarchy(path: Path) -> Tuple[List[str], Dict[str, ModuleInfo]]:
             parent_abbrev=m.get("parent_abbrev"),
         )
         modules[mi.abbrev] = mi
-    # If levels list isn't provided, derive order from modules (stable sort by appearance)
     if not levels:
         seen = []
         for mi in modules.values():
-            if mi.level not in seen:
-                seen.append(mi.level)
+            if mi.level not in seen: seen.append(mi.level)
         levels = seen
     return levels, modules
 
@@ -223,24 +212,24 @@ def module_edit_url(mod: str) -> str: return f"edit/edit-{mod}.html"
 
 def level_url(level: str) -> str: return f"levels/{slug(level)}.html"
 
-# Inline JS (no external script), inserted at end of <body>
+# Inline JS (UNESCAPED!)
 DEFAULT_INLINE_JS = r"""
 (function(){
-  // Theme
-  var root = document.documentElement; var btn = document.getElementById('themeToggle');
-  try{ var saved = localStorage.getItem('doors-theme'); if(saved){ root.setAttribute('data-theme', saved); } }catch(e){}
-  if(btn){ btn.addEventListener('click', function(){ var cur=root.getAttribute('data-theme')||'dark'; var next=(cur==='dark')?'light':'dark'; root.setAttribute('data-theme', next); try{localStorage.setItem('doors-theme', next);}catch(e){} }); }
-  // Filter (token‑AND across all tables in same section)
-  window.filterTable = function(input){ var el=input||document.getElementById('tblFilter'); if(!el) return; var q=(el.value||'').toLowerCase().replace(/\s+/g,' ').replace(/^\s+|\s+$/g,''); var tokens=q?q.split(' '):[]; var scope=el.closest? (el.closest('section')||document):document; var tables=scope.querySelectorAll? scope.querySelectorAll('table.table'):[]; for(var i=0;i<tables.length;i++){ var tb=tables[i].tBodies && tables[i].tBodies[0]; if(!tb) continue; for(var r=0;r<tb.rows.length;r++){ var tr=tb.rows[r]; var text=(tr.innerText||tr.textContent||'').toLowerCase(); var show=true; for(var t=0;t<tokens.length;t++){ if(text.indexOf(tokens[t])===-1){ show=false; break; } } tr.style.display = show? '' : 'none'; } } };
-  // CSV export
-  window.downloadEditedCSV = function(tableId, filename){ var table=document.getElementById(tableId); if(!table) return; var tb=table.tBodies&&table.tBodies[0]; if(!tb) return; var headers=['ExternalID','Heading','ObjectText','IncomingLinks','OutgoingLinks']; var csv=[headers.join(',')]; for(var i=0;i<tb.rows.length;i++){ var cells=tb.rows[i].cells; var vals=[]; for(var j=0;j<5;j++){ var s=cells[j]? (cells[j].innerText||cells[j].textContent||'') : ''; if(/[",\n]/.test(s)){ s='"'+s.replace(/"/g,'""')+'"'; } vals.push(s); } csv.push(vals.join(',')); } var blob=new Blob([csv.join('\n')],{type:'text/csv;charset=utf-8;'}); var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename||'requirements.csv'; document.body.appendChild(a); a.click(); a.remove(); };
-  // Auto-bind filters
+  try{ document.documentElement.setAttribute('data-js','on'); }catch(e){}
+  var root=document.documentElement; var btn=document.getElementById('themeToggle');
+  function applyIcon(){ if(!btn) return; var cur=root.getAttribute('data-theme'); btn.textContent = (cur==='light') ? '🌙' : '☀️'; btn.setAttribute('aria-label','Toggle theme'); }
+  try{ var saved=localStorage.getItem('doors-theme'); if(saved==='light'||saved==='dark'){ root.setAttribute('data-theme', saved); } }catch(e){}
+  if(btn){ btn.addEventListener('click', function(){ var cur=root.getAttribute('data-theme')||'dark'; var next=(cur==='dark')?'light':'dark'; root.setAttribute('data-theme', next); try{localStorage.setItem('doors-theme', next);}catch(e){} applyIcon(); }); }
+  applyIcon();
+  window.filterTable = function(input){ var el=input||document.getElementById('tblFilter'); if(!el) return; var q=(el.value||'').toLowerCase().replace(/\s+/g,' ').replace(/^\s+|\s+$/g,''); var tokens=q? q.split(' '):[]; var scope=el.closest? (el.closest('section')||document):document; var tables=scope.querySelectorAll? scope.querySelectorAll('table.table'):[]; for(var i=0;i<tables.length;i++){ var tb=tables[i].tBodies && tables[i].tBodies[0]; if(!tb) continue; for(var r=0;r<tb.rows.length;r++){ var tr=tb.rows[r]; var text=(tr.innerText||tr.textContent||'').toLowerCase(); var show=true; for(var t=0;t<tokens.length;t++){ if(text.indexOf(tokens[t])===-1){ show=false; break; } } tr.style.display = show? '' : 'none'; } } };
+  window.downloadEditedCSV=function(tableId,filename){ var table=document.getElementById(tableId); if(!table) return; var tb=table.tBodies&&table.tBodies[0]; if(!tb) return; var headers=['ExternalID','Heading','ObjectText','IncomingLinks','OutgoingLinks']; var csv=[headers.join(',')]; for(var i=0;i<tb.rows.length;i++){ var cells=tb.rows[i].cells; var vals=[]; for(var j=0;j<5;j++){ var s=cells[j]? (cells[j].innerText||cells[j].textContent||'') : ''; if(/[",\n]/.test(s)){ s='"'+s.replace(/"/g,'""')+'"'; } vals.push(s); } csv.push(vals.join(',')); } var blob=new Blob([csv.join('\n')],{type:'text/csv;charset=utf-8;'}); var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename||'requirements.csv'; document.body.appendChild(a); a.click(); a.remove(); };
   function bind(){ var inputs=document.querySelectorAll? document.querySelectorAll('input#tblFilter'):[]; for(var i=0;i<inputs.length;i++){ (function(inp){ inp.addEventListener('input', function(){ window.filterTable(inp); }); })(inputs[i]); } }
   if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', bind);} else { bind(); }
 })();
 """
 
-# Shared layout (builds nav from project.levels)
+# Shared layout
+
 def layout(title: str, body: str, project_name: str, levels: List[str], depth: int = 0) -> str:
     p = "../"*depth if depth>0 else ""
     nav_levels = "".join(f"<a href='{p}{level_url(l)}'>{escape(l)}</a>" for l in levels)
@@ -259,14 +248,16 @@ def layout(title: str, body: str, project_name: str, levels: List[str], depth: i
     <a href=\"{p}index.html\">Home</a>
     {nav_levels}
     <a href=\"{p}edit/index.html\">Edit Links</a>
-    <button class=\"btn ghost\" id=\"themeToggle\" title=\"Toggle theme\">◐</button>
+    <button class=\"btn ghost\" id=\"themeToggle\" title=\"Toggle theme\">☀️</button>
   </nav>
 </header>
 <main class=\"container\">
 {body}
 </main>
 <footer class=\"site-footer\">Generated by DOORS CSV → HTML generator</footer>
-<script>{escape(DEFAULT_INLINE_JS)}</script>
+<script>
+{DEFAULT_INLINE_JS}
+</script>
 </body>
 </html>
 """
@@ -301,6 +292,61 @@ def render_level_pages(proj: Project, out_root: Path) -> None:
     grouped = group_requirements_by_level(proj)
     for lvl in proj.levels:
         reqs = grouped.get(lvl, [])
+        # Special behavior: on the "Module" level page, separate tables per module
+        if lvl.strip().lower() == "module":
+            # Group requirements by module abbrev
+            by_mod: Dict[str, List[Requirement]] = {}
+            for r in reqs:
+                by_mod.setdefault(r.abbrev, []).append(r)
+            # Build jump list
+            jump_items = []
+            for mod in sorted(by_mod.keys()):
+                mi = proj.modules.get(mod)
+                label = f"{mod} — {mi.name}" if mi else mod
+                jump_items.append(f"<a class='chip' href='#mod-{escape(mod)}'>{escape(label)}</a>")
+            sections = []
+            for mod in sorted(by_mod.keys()):
+                mi = proj.modules.get(mod)
+                mod_title = f"{mod} — {mi.name}" if mi else mod
+                rows=[]
+                for r in by_mod[mod]:
+                    label,_,_=proj.tests_rollup(r.external_id)
+                    def link_html(eid: str) -> str:
+                        rr = proj.requirements.get(eid)
+                        tip = make_tip(rr)
+                        return f"<a href='{p}{requirement_url(eid)}' title='{tip}'>{escape(eid)}</a>" if rr else escape(eid)
+                    inc = " ".join(link_html(e) for e in r.incoming if e in proj.requirements)
+                    outs_req=[e for e in r.outgoing if e in proj.requirements]
+                    outs_tst=[e for e in r.outgoing if is_test_id(e)]
+                    outs_html = (f"<div><strong>Req:</strong> "+", ".join(link_html(e) for e in outs_req)+"</div>" if outs_req else "") \
+                                + (f"<div><strong>Tests:</strong> "+", ".join(escape(e) for e in outs_tst)+"</div>" if outs_tst else "")
+                    rows.append(
+                        f"<tr><td><a href='{p}{requirement_url(r.external_id)}'>{escape(r.external_id)}</a></td>"
+                        f"<td>{escape(r.heading)}</td><td>{escape(truncate(r.text,180))}</td>"
+                        f"<td>{inc}</td><td>{outs_html}</td><td>{badge(label)}</td></tr>"
+                    )
+                section_html = f"""
+                <section id='mod-{escape(mod)}'>
+                  <h2>{escape(mod_title)}</h2>
+                  <input id='tblFilter' placeholder='Filter within {escape(mod)}…' oninput='filterTable(this)' />
+                  <div class='table-wrap'>
+                    <table class='table'>
+                      <thead><tr><th>ExternalID</th><th>Heading</th><th>Text</th><th>Incoming</th><th>Outgoing</th><th>Tests</th></tr></thead>
+                      <tbody>{''.join(rows) or '<tr><td colspan=6>None</td></tr>'}</tbody>
+                    </table>
+                  </div>
+                </section>
+                """
+                sections.append(section_html)
+            body = f"""
+            <h1>{escape(lvl)}</h1>
+            <div class='toolbar'><span class='muted small'>Jump to module:</span> {' '.join(jump_items) if jump_items else '—'}</div>
+            {''.join(sections)}
+            """
+            write_text(out_root/level_url(lvl), layout(lvl, body, proj.project_name, proj.levels, depth))
+            continue
+
+        # Default behavior for other levels: single consolidated table
         rows=[]
         for r in reqs:
             label,_,_=proj.tests_rollup(r.external_id)
@@ -322,7 +368,7 @@ def render_level_pages(proj: Project, out_root: Path) -> None:
         <h1>{escape(lvl)}</h1>
         <input id='tblFilter' placeholder='Filter by ID or text…' oninput='filterTable(this)' />
         <div class='table-wrap'>
-          <table id='reqTable' class='table'>
+          <table class='table'>
             <thead><tr><th>ExternalID</th><th>Heading</th><th>Text</th><th>Incoming</th><th>Outgoing</th><th>Tests</th></tr></thead>
             <tbody>{''.join(rows)}</tbody>
           </table>
@@ -375,19 +421,10 @@ def render_requirement_pages(proj: Project, out_root: Path) -> None:
         <p class='muted'>{escape(r.text)}</p>
         <section><h2>Consolidated tests {badge(label)}</h2><div class='counts'>{counts_html}</div><div class='muted small'>All associated tests: {all_tests_html}</div></section>
         <div class='grid'>
-          <section>
-            <h3>Incoming (higher-level)</h3>
-            <div class='table-wrap'><table class='table'><thead><tr><th>ExternalID</th><th>Heading</th><th>Text</th></tr></thead><tbody>{''.join(inc_rows) or '<tr><td colspan=3>None</td></tr>'}</tbody></table></div>
-          </section>
-          <section>
-            <h3>Outgoing (lower-level)</h3>
-            <div class='table-wrap'><table class='table'><thead><tr><th>ExternalID</th><th>Heading</th><th>Text</th></tr></thead><tbody>{''.join(out_rows) or '<tr><td colspan=3>None</td></tr>'}</tbody></table></div>
-          </section>
+          <section><h3>Incoming (higher-level)</h3><div class='table-wrap'><table class='table'><thead><tr><th>ExternalID</th><th>Heading</th><th>Text</th></tr></thead><tbody>{''.join(inc_rows) or '<tr><td colspan=3>None</td></tr>'}</tbody></table></div></section>
+          <section><h3>Outgoing (lower-level)</h3><div class='table-wrap'><table class='table'><thead><tr><th>ExternalID</th><th>Heading</th><th>Text</th></tr></thead><tbody>{''.join(out_rows) or '<tr><td colspan=3>None</td></tr>'}</tbody></table></div></section>
         </div>
-        <section>
-          <h3>Direct tests linked to this requirement</h3>
-          <div class='table-wrap'><table class='table'><thead><tr><th>TestID</th><th>Result</th><th>Procedure</th><th>Notes</th></tr></thead><tbody>{''.join(test_rows) or '<tr><td colspan=4>None</td></tr>'}</tbody></table></div>
-        </section>
+        <section><h3>Direct tests linked to this requirement</h3><div class='table-wrap'><table class='table'><thead><tr><th>TestID</th><th>Result</th><th>Procedure</th><th>Notes</th></tr></thead><tbody>{''.join(test_rows) or '<tr><td colspan=4>None</td></tr>'}</tbody></table></div></section>
         """
         write_text(out_root/requirement_url(r.external_id), layout(r.external_id, body, proj.project_name, proj.levels, depth))
 
@@ -399,7 +436,7 @@ def render_edit_pages(proj: Project, out_root: Path) -> None:
     for mod, lst in by_mod.items():
         lst.sort(key=lambda r:(r.sd, int(r.counter) if r.counter.isdigit() else r.counter))
         cards.append(f"<a class='card' href='../{module_edit_url(mod)}'><h3>{escape(mod)}</h3><p>{len(lst)} requirements</p></a>")
-    body = "<h1>Edit links</h1><p>Inline-edit the <code>OutgoingLinks</code> column, then click <em>Download CSV</em> to export an updated module CSV for DOORS re-import.</p><div class='cards'>"+"".join(cards)+"</div>"
+    body = "<h1>Edit links</h1><p>Inline‑edit the <code>OutgoingLinks</code> column, then click <em>Download CSV</em> to export an updated module CSV for DOORS re‑import.</p><div class='cards'>"+"".join(cards)+"</div>"
     write_text(out_root/"edit"/"index.html", layout("Edit links", body, proj.project_name, proj.levels, depth))
 
     for mod, reqs in by_mod.items():
@@ -429,6 +466,7 @@ def write_assets(out_root: Path) -> None:
     write_text(out_root/"style.css", DEFAULT_CSS)
 
 DEFAULT_CSS = """:root{--bg:#0b0c10;--surface:#121317;--muted:#9aa0a6;--text:#e5e7eb;--border:#222638;--accent:#60a5fa;--pass:#22c55e;--fail:#ef4444;--warn:#f59e0b;--info:#38bdf8;--shadow:0 6px 18px rgba(0,0,0,.25)}
+:root{transition: background .2s linear, color .2s linear}
 @media (prefers-color-scheme: light){:root{--bg:#f7f8fb;--surface:#fff;--muted:#5f6774;--text:#111827;--border:#e5e7eb;--shadow:0 6px 18px rgba(0,0,0,.08)}}
 :root[data-theme=light]{--bg:#f7f8fb;--surface:#fff;--muted:#5f6774;--text:#111827;--border:#e5e7eb;--shadow:0 6px 18px rgba(0,0,0,.08)}
 :root[data-theme=dark]{--bg:#0b0c10;--surface:#121317;--muted:#9aa0a6;--text:#e5e7eb;--border:#222638}
@@ -457,7 +495,7 @@ input#tblFilter{width:100%;padding:12px;border-radius:12px;border:1px solid var(
 # ─────────────────────────── Entry point ───────────────────────────
 
 def main():
-    ap = argparse.ArgumentParser(description="Generate a static HTML site from DOORS CSVs (v4)")
+    ap = argparse.ArgumentParser(description="Generate a static HTML site from DOORS CSVs (v6)")
     ap.add_argument("--exports", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--project-name", type=str, default="DOORS Project")
