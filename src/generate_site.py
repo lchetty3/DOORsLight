@@ -1,9 +1,9 @@
-# DOORS CSV → Static HTML generator (v6)
-# Change: On the "Module" level page, render **separate tables per module**.
-# (Other levels keep a single consolidated table.)
+# DOORS CSV → Static HTML generator (v7)
+# Change: parse IncomingLinks/OutgoingLinks that are separated by SPACES as well as semicolons.
+# Also robust to commas and mixed separators. (Regex split: /[;,\s]+/)
 #
-# Also includes: dynamic N-level hierarchy (via hierarchy.yaml), inline JS (unescaped),
-# robust filter scoped to nearest <section>, tooltips on req links, working theme toggle.
+# Kept: 5‑level hierarchy from hierarchy.yaml, per‑module tables on the "Module" level,
+# inline JS (unescaped) with working theme + filter, tooltips for req links, edit pages.
 
 from __future__ import annotations
 import argparse, csv, html, re
@@ -87,7 +87,7 @@ class Project:
 
 # ─────────────────────────── Helpers ───────────────────────────
 def parse_external_id(eid: str):
-    parts = eid.strip().split("-")
+    parts = (eid or "").strip().split("-")
     if len(parts) < 3:
         raise ValueError(f"Invalid ExternalID: {eid}")
     return parts[0], parts[1], "-".join(parts[2:])
@@ -111,6 +111,11 @@ def slug(s: str) -> str:
     s = s.strip().lower()
     s = re.sub(r"[^a-z0-9]+", "_", s)
     return re.sub(r"_+", "_", s).strip("_")
+
+# Accept space, semicolon, or comma as separators
+_SPLIT_RE = re.compile(r"[;,\s]+")
+def split_links(s: str) -> list[str]:
+    return [t for t in _SPLIT_RE.split(s or "") if t]
 
 # ─────────────────────────── Loading ───────────────────────────
 def load_hierarchy(path: Path) -> Tuple[List[str], Dict[str, ModuleInfo]]:
@@ -157,8 +162,8 @@ def load_project(exports_root: Path, hierarchy_path: Path, project_name: str) ->
             eid = row.get("ExternalID", "")
             if not eid: continue
             mod, sd, counter = parse_external_id(eid)
-            incoming = [t.strip() for t in (row.get("IncomingLinks", "") or "").split(";") if t.strip()]
-            outgoing = [t.strip() for t in (row.get("OutgoingLinks", "") or "").split(";") if t.strip()]
+            incoming = split_links(row.get("IncomingLinks", ""))
+            outgoing = split_links(row.get("OutgoingLinks", ""))
             requirements[eid] = Requirement(
                 external_id=eid, abbrev=mod, sd=sd, counter=counter,
                 heading=row.get("Heading", ""), text=row.get("ObjectText", ""),
@@ -292,22 +297,17 @@ def render_level_pages(proj: Project, out_root: Path) -> None:
     grouped = group_requirements_by_level(proj)
     for lvl in proj.levels:
         reqs = grouped.get(lvl, [])
-        # Special behavior: on the "Module" level page, separate tables per module
+        # Module level: separate tables per module
         if lvl.strip().lower() == "module":
-            # Group requirements by module abbrev
             by_mod: Dict[str, List[Requirement]] = {}
-            for r in reqs:
-                by_mod.setdefault(r.abbrev, []).append(r)
-            # Build jump list
-            jump_items = []
+            for r in reqs: by_mod.setdefault(r.abbrev, []).append(r)
+            jump = []
             for mod in sorted(by_mod.keys()):
                 mi = proj.modules.get(mod)
-                label = f"{mod} — {mi.name}" if mi else mod
-                jump_items.append(f"<a class='chip' href='#mod-{escape(mod)}'>{escape(label)}</a>")
+                jump.append(f"<a class='chip' href='#mod-{escape(mod)}'>{escape(mod)} — {escape(mi.name if mi else '')}</a>")
             sections = []
             for mod in sorted(by_mod.keys()):
                 mi = proj.modules.get(mod)
-                mod_title = f"{mod} — {mi.name}" if mi else mod
                 rows=[]
                 for r in by_mod[mod]:
                     label,_,_=proj.tests_rollup(r.external_id)
@@ -325,9 +325,9 @@ def render_level_pages(proj: Project, out_root: Path) -> None:
                         f"<td>{escape(r.heading)}</td><td>{escape(truncate(r.text,180))}</td>"
                         f"<td>{inc}</td><td>{outs_html}</td><td>{badge(label)}</td></tr>"
                     )
-                section_html = f"""
+                sections.append(f"""
                 <section id='mod-{escape(mod)}'>
-                  <h2>{escape(mod_title)}</h2>
+                  <h2>{escape(mod)} — {escape(mi.name if mi else '')}</h2>
                   <input id='tblFilter' placeholder='Filter within {escape(mod)}…' oninput='filterTable(this)' />
                   <div class='table-wrap'>
                     <table class='table'>
@@ -336,17 +336,15 @@ def render_level_pages(proj: Project, out_root: Path) -> None:
                     </table>
                   </div>
                 </section>
-                """
-                sections.append(section_html)
+                """)
             body = f"""
             <h1>{escape(lvl)}</h1>
-            <div class='toolbar'><span class='muted small'>Jump to module:</span> {' '.join(jump_items) if jump_items else '—'}</div>
+            <div class='toolbar'><span class='muted small'>Jump to module:</span> {' '.join(jump) if jump else '—'}</div>
             {''.join(sections)}
             """
             write_text(out_root/level_url(lvl), layout(lvl, body, proj.project_name, proj.levels, depth))
             continue
-
-        # Default behavior for other levels: single consolidated table
+        # Other levels: single consolidated table
         rows=[]
         for r in reqs:
             label,_,_=proj.tests_rollup(r.external_id)
@@ -495,7 +493,7 @@ input#tblFilter{width:100%;padding:12px;border-radius:12px;border:1px solid var(
 # ─────────────────────────── Entry point ───────────────────────────
 
 def main():
-    ap = argparse.ArgumentParser(description="Generate a static HTML site from DOORS CSVs (v6)")
+    ap = argparse.ArgumentParser(description="Generate a static HTML site from DOORS CSVs (v7)")
     ap.add_argument("--exports", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--project-name", type=str, default="DOORS Project")
