@@ -12,7 +12,7 @@
 #   python generate_site.py --exports ./exports --out ./site --project-name "Your Project"
 
 from __future__ import annotations
-import argparse, csv, html
+import argparse, csv, html, sys
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional, Set
@@ -126,7 +126,7 @@ def load_hierarchy(path: Path) -> Dict[str, ModuleInfo]:
 
 def read_csv_rows(csv_path: Path):
     rows = []
-    with csv_path.open(newline="", encoding="utf-8") as f:
+    with csv_path.open(newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
             rows.append({ (k or "").strip(): (v or "").strip() for k, v in row.items() })
@@ -139,38 +139,117 @@ def discover_module_files(exports_root: Path):
         elif p.name.lower() == "tests.csv": test_files.append(p)
     return sorted(req_files), sorted(test_files)
 
-def load_project(exports_root: Path, hierarchy_path: Path, project_name: str) -> Project:
+def load_project(exports_root: Path, hierarchy_path: Path, project_name: str, verbose: bool=False) -> Project:
+    """Load project data and print useful CSV diagnostics to the terminal.
+
+    Set verbose=True to also print discovered files and summary counts.
+    """
+    def info(msg: str):
+        if verbose: print(msg)
+    def warn(msg: str):
+        print(f"[WARN] {msg}", file=sys.stderr)
+    def error(msg: str):
+        print(f"[ERROR] {msg}", file=sys.stderr)
+
     modules = load_hierarchy(hierarchy_path)
     req_files, test_files = discover_module_files(exports_root)
-    requirements, tests = {}, {}
+    if verbose:
+        info(f"Found {len(req_files)} requirements.csv and {len(test_files)} tests.csv files under {exports_root}")
+        for p in req_files: info(f"  req:  {p}")
+        for p in test_files: info(f"  test: {p}")
 
+    requirements: Dict[str, Requirement] = {}
+    tests: Dict[str, TestCase] = {}
+    req_origin: Dict[str, Path] = {}
+    test_origin: Dict[str, Path] = {}
+
+    # Load requirements
     for rf in req_files:
-        for row in read_csv_rows(rf):
-            eid = row.get("ExternalID","")
-            if not eid: continue
-            mod, sd, counter = parse_external_id(eid)
-            incoming = [t.strip() for t in row.get("IncomingLinks","").split(";") if t.strip()]
-            outgoing = [t.strip() for t in row.get("OutgoingLinks","").split(";") if t.strip()]
+        rows = read_csv_rows(rf)
+        if not rows:
+            warn(f"{rf}: file has no data rows")
+            continue
+        header_keys = set(rows[0].keys())
+        for col in ["ExternalID","Heading","ObjectText","IncomingLinks","OutgoingLinks"]:
+            if col not in header_keys:
+                warn(f"{rf}: missing column '{col}' in header")
+        for i, row in enumerate(rows, start=1):
+            eid = (row.get("ExternalID","") or "").strip()
+            if not eid:
+                warn(f"{rf}: row {i}: missing ExternalID; row ignored")
+                continue
+            try:
+                mod, sd, counter = parse_external_id(eid)
+            except Exception as ex:
+                error(f"{rf}: row {i}: invalid ExternalID '{eid}' ({ex})")
+                continue
+            if mod not in modules:
+                warn(f"{rf}: row {i}: module abbrev '{mod}' not found in hierarchy.yaml")
+            if eid in requirements:
+                prev = req_origin.get(eid, "<unknown>")
+                warn(f"{rf}: row {i}: duplicate requirement '{eid}' (previous in {prev}); overwriting")
+            incoming = [t.strip() for t in (row.get("IncomingLinks","") or "").split(";") if t.strip()]
+            outgoing = [t.strip() for t in (row.get("OutgoingLinks","") or "").split(";") if t.strip()]
             requirements[eid] = Requirement(
                 external_id=eid, abbrev=mod, sd=sd, counter=counter,
                 heading=row.get("Heading",""), text=row.get("ObjectText",""),
                 incoming=incoming, outgoing=outgoing
             )
+            req_origin[eid] = rf
 
+    # Load tests
     for tf in test_files:
-        for row in read_csv_rows(tf):
-            eid = row.get("ExternalID","")
-            if not eid: continue
-            mod, sd, counter = parse_external_id(eid)
-            if sd != "AT": continue
+        rows = read_csv_rows(tf)
+        if not rows:
+            warn(f"{tf}: file has no data rows")
+            continue
+        header_keys = set(rows[0].keys())
+        for col in ["ExternalID","ObjectText","TestResult","Additional Information"]:
+            if col not in header_keys:
+                warn(f"{tf}: missing column '{col}' in header")
+        for i, row in enumerate(rows, start=1):
+            eid = (row.get("ExternalID","") or "").strip()
+            if not eid:
+                warn(f"{tf}: row {i}: missing ExternalID; row ignored")
+                continue
+            try:
+                mod, sd, counter = parse_external_id(eid)
+            except Exception as ex:
+                error(f"{tf}: row {i}: invalid ExternalID '{eid}' ({ex})")
+                continue
+            if sd != "AT":
+                warn(f"{tf}: row {i}: ExternalID '{eid}' is not an AT test; skipping")
+                continue
+            if eid in tests:
+                prev = test_origin.get(eid, "<unknown>")
+                warn(f"{tf}: row {i}: duplicate test '{eid}' (previous in {prev}); overwriting")
             tests[eid] = TestCase(
                 external_id=eid, abbrev=mod, counter=counter,
                 text=row.get("ObjectText",""), result=row.get("TestResult","Not Run"),
-                additional=row.get("Additional Information","")
+                additional=row.get("Additional Information",""),
             )
+            test_origin[eid] = tf
 
     proj = Project(project_name=project_name, modules=modules, requirements=requirements, tests=tests)
     proj.build_graph()
+
+    # Validate link targets after graph creation
+    for rid, req in proj.requirements.items():
+        for eid in req.incoming:
+            if is_test_id(eid):
+                warn(f"Requirement {rid}: Incoming link references a test '{eid}' (unexpected)")
+            elif eid not in proj.requirements:
+                warn(f"Requirement {rid}: Incoming link to unknown requirement '{eid}'")
+        for eid in req.outgoing:
+            if is_test_id(eid):
+                if eid not in proj.tests:
+                    warn(f"Requirement {rid}: Outgoing link to missing test '{eid}'")
+            elif eid not in proj.requirements:
+                warn(f"Requirement {rid}: Outgoing link to unknown requirement '{eid}'")
+
+    if verbose:
+        info(f"Loaded {len(proj.modules)} modules, {len(proj.requirements)} requirements, {len(proj.tests)} tests")
+
     return proj
 
 # ─────────────────────────── Rendering utils ───────────────────────────
@@ -493,13 +572,14 @@ def main():
     ap.add_argument("--exports", type=Path, required=True, help="Root exports directory containing hierarchy.yaml and CSVs")
     ap.add_argument("--out", type=Path, required=True, help="Output directory for the static site")
     ap.add_argument("--project-name", type=str, default="DOORS Project", help="Project name for the site header")
+    ap.add_argument("-v","--verbose", action="store_true", help="Print discovery info and summary to the terminal")
     args = ap.parse_args()
 
     hier = args.exports/"hierarchy.yaml"
     if not hier.exists():
         raise SystemExit(f"Missing hierarchy.yaml at {hier}")
 
-    proj = load_project(args.exports, hier, args.project_name)
+    proj = load_project(args.exports, hier, args.project_name, verbose=args.verbose)
 
     write_assets(args.out)
     render_index(proj, args.out)
