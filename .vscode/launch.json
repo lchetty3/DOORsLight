@@ -14,7 +14,8 @@
             "args": [
                 "--exports", "./exports",
                 "--out", "./site",
-                "--project-name", "Your Project"
+                "--project-name", "Ground Survellience Radar",
+                "--logo", "./src/ReutechLogo.png",
             ],
         }
     ]
