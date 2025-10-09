@@ -166,16 +166,19 @@ def load_project(exports_root: Path, hierarchy_path: Path, project_name: str) ->
 
     for rf in req_files:
         for row in read_csv_rows(rf):
-            eid = row.get("Object Identifier", "")
-            if not eid: continue
-            mod, sd, counter = parse_external_id(eid)
-            incoming = split_links(row.get("Incoming Links", ""))
-            outgoing = split_links(row.get("Outgoing Links", ""))
-            requirements[eid] = Requirement(
-                external_id=eid, abbrev=mod, sd=sd, counter=counter,
-                heading=row.get("Object Heading", ""), text=row.get("Object Text", ""),
-                incoming=incoming, outgoing=outgoing,
-            )
+            #only load requirements
+            dataclass = row.get("DataClass", "")
+            if dataclass == "Mandatory" or dataclass == "Desireable" or dataclass == "Derived":
+                eid = row.get("Object Identifier", "")
+                if not eid: continue
+                mod, sd, counter = parse_external_id(eid)
+                incoming = split_links(row.get("Incoming Links", ""))
+                outgoing = split_links(row.get("Outgoing Links", ""))
+                requirements[eid] = Requirement(
+                    external_id=eid, abbrev=mod, sd=sd, counter=counter,
+                    heading=row.get("Object Heading", ""), text=row.get("Object Text", ""),
+                    incoming=incoming, outgoing=outgoing,
+                )
 
     for tf in test_files:
         for row in read_csv_rows(tf):
@@ -260,7 +263,7 @@ def layout(title: str, body: str, project_name: str, levels: List[str], depth: i
   <nav class="nav">
     <a href="{p}index.html">Overview</a>
     {nav_levels}
-    <a href="{p}edit/index.html">Edit Links</a>
+    
   </nav>
   <button id="themeToggle" class="btn" aria-label="Toggle theme">☀️</button>
 </header>
@@ -284,8 +287,10 @@ def render_index(proj: Project, out_root: Path) -> None:
     body=f"""
     <h1>Project overview</h1>
     <div class='cards'>{''.join(cards)}</div>
-    <section><h2>Modules</h2><ul>{mods}</ul></section>
+    
     """
+
+    # <section><h2>Modules</h2><ul>{mods}</ul></section>
     write_text(out_root/"index.html", layout("Overview", body, proj.project_name, proj.levels, depth))
 
 
