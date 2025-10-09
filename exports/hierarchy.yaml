@@ -1,0 +1,80 @@
+project: "/ProjX"
+levels:
+  - "User Requirement"
+  - "System Requirement"
+  - "Subsystem"
+  - "Module"
+  - "Submodule"
+
+modules:
+  - name: User Requirement
+    abbrev: URS
+    level: User Requirement
+    requirements_module: "/ProjX/System/SYS_RS"
+    tests_module: "/ProjX/System/SYS_AT"    
+  - name: System Requirement
+    abbrev: SYS
+    level: System Requirement
+    requirements_module: "/ProjX/System/SYS_RS"
+    tests_module: "/ProjX/System/SYS_AT"
+    parent_abbrev: URS
+  - name: Sensor Array
+    abbrev: SA
+    level: Subsystem
+    requirements_module: "/ProjX/Power/PWR_SD"
+    tests_module: "/ProjX/Power/PWR_AT"
+    parent_abbrev: SYS
+  - name: Receiver
+    abbrev: RX
+    level: Module
+    requirements_module: "/ProjX/Power/Regulator/REG_SD"
+    tests_module: "/ProjX/Power/Regulator/REG_AT"
+    parent_abbrev: SA
+  - name: Synthesizer
+    abbrev: SYN
+    level: Module
+    requirements_module: "/ProjX/GNSS/GNSS_SD"
+    tests_module: "/ProjX/GNSS/GNSS_AT"
+    parent_abbrev: SA
+  - name: DFE
+    abbrev: DFE
+    level: Module
+    requirements_module: "/ProjX/GNSS/GNSS_SD"
+    tests_module: "/ProjX/GNSS/GNSS_AT"
+    parent_abbrev: SA
+  - name: UpConverter
+    abbrev: UPC
+    level: Module
+    requirements_module: "/ProjX/GNSS/GNSS_SD"
+    tests_module: "/ProjX/GNSS/GNSS_AT"
+    parent_abbrev: SA
+  - name: Receiver Distribution Unit
+    abbrev: RXD
+    level: Module
+    requirements_module: "/ProjX/GNSS/GNSS_SD"
+    tests_module: "/ProjX/GNSS/GNSS_AT"
+    parent_abbrev: SA
+  - name: Software
+    abbrev: SW
+    level: Module
+    requirements_module: "/ProjX/GNSS/GNSS_SD"
+    tests_module: "/ProjX/GNSS/GNSS_AT"
+    parent_abbrev: SA
+  - name: HMI
+    abbrev: HMI
+    level: Module
+    requirements_module: "/ProjX/GNSS/GNSS_SD"
+    tests_module: "/ProjX/GNSS/GNSS_AT"
+    parent_abbrev: SA
+  - name: Power Distribution Unit
+    abbrev: PDU
+    level: Module
+    requirements_module: "/ProjX/GNSS/GNSS_SD"
+    tests_module: "/ProjX/GNSS/GNSS_AT"
+    parent_abbrev: SA
+  - name: TOE
+    abbrev: TOE
+    level: Submodule
+    requirements_module: "/ProjX/GNSS/GNSS_SD"
+    tests_module: "/ProjX/GNSS/GNSS_AT"
+    parent_abbrev: UPC
