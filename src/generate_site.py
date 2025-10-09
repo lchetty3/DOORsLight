@@ -142,7 +142,7 @@ def load_hierarchy(path: Path) -> Tuple[List[str], Dict[str, ModuleInfo]]:
 
 def read_csv_rows(csv_path: Path):
     rows = []
-    with csv_path.open(newline="", encoding="utf-8-sig") as f:
+    with csv_path.open(newline="", encoding="utf-8-sig", errors="replace") as f:
         reader = csv.DictReader(f)
         for row in reader:
             rows.append({(k or "").strip(): (v or "").strip() for k, v in row.items()})
@@ -151,8 +151,11 @@ def read_csv_rows(csv_path: Path):
 def discover_module_files(exports_root: Path):
     req_files, test_files = [], []
     for p in exports_root.rglob("*.csv"):
-        if p.name.lower() == "requirements.csv": req_files.append(p)
-        elif p.name.lower() == "tests.csv": test_files.append(p)
+        if (("requirement" in p.name.lower() or "specification" in p.name.lower()) and p.suffix.lower() == ".csv"):
+            req_files.append(p)
+        elif ("test" in p.name.lower() and p.suffix.lower() == ".csv"):
+            test_files.append(p)
+
     return sorted(req_files), sorted(test_files)
 
 def load_project(exports_root: Path, hierarchy_path: Path, project_name: str) -> Project:
@@ -163,27 +166,27 @@ def load_project(exports_root: Path, hierarchy_path: Path, project_name: str) ->
 
     for rf in req_files:
         for row in read_csv_rows(rf):
-            eid = row.get("ExternalID", "")
+            eid = row.get("Object Identifier", "")
             if not eid: continue
             mod, sd, counter = parse_external_id(eid)
-            incoming = split_links(row.get("IncomingLinks", ""))
-            outgoing = split_links(row.get("OutgoingLinks", ""))
+            incoming = split_links(row.get("Incoming Links", ""))
+            outgoing = split_links(row.get("Outgoing Links", ""))
             requirements[eid] = Requirement(
                 external_id=eid, abbrev=mod, sd=sd, counter=counter,
-                heading=row.get("Heading", ""), text=row.get("ObjectText", ""),
+                heading=row.get("Object Heading", ""), text=row.get("Object Text", ""),
                 incoming=incoming, outgoing=outgoing,
             )
 
     for tf in test_files:
         for row in read_csv_rows(tf):
-            eid = row.get("ExternalID", "")
+            eid = row.get("Object Identifier", "")
             if not eid: continue
             mod, sd, counter = parse_external_id(eid)
             if sd != "AT": continue
             tests[eid] = TestCase(
                 external_id=eid, abbrev=mod, counter=counter,
                 text=row.get("ObjectText", ""), result=row.get("TestResult", "Not Run"),
-                additional=row.get("Additional Information", ""),
+                additional=row.get("TestComment", ""),
             )
 
     proj = Project(project_name=project_name, levels=levels, modules=modules, requirements=requirements, tests=tests)
