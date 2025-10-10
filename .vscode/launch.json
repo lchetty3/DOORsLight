@@ -13,7 +13,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--exports", "./exports",
-                "--out", "./site",
+                "--out", "./site",//"o:\\02 - System Engineering\\DOORsLight\\",
                 "--project-name", "Ground Survellience Radar",
                 "--logo", "./src/ReutechLogo.png",
             ],

@@ -188,7 +188,7 @@ def load_project(exports_root: Path, hierarchy_path: Path, project_name: str) ->
             if sd != "AT": continue
             tests[eid] = TestCase(
                 external_id=eid, abbrev=mod, counter=counter,
-                text=row.get("ObjectText", ""), result=row.get("TestResult", "Not Run"),
+                text=row.get("Object Text", ""), result=row.get("TestResult", "Not Run"),
                 additional=row.get("TestComment", ""),
             )
 
@@ -435,7 +435,7 @@ def render_requirement_pages(proj: Project, out_root: Path) -> None:
           <section><h3>Incoming (higher-level)</h3><div class='table-wrap'><table class='table'><thead><tr><th>ExternalID</th><th>Heading</th><th>Text</th></tr></thead><tbody>{''.join(inc_rows) or '<tr><td colspan=3>None</td></tr>'}</tbody></table></div></section>
           <section><h3>Outgoing (lower-level)</h3><div class='table-wrap'><table class='table'><thead><tr><th>ExternalID</th><th>Heading</th><th>Text</th></tr></thead><tbody>{''.join(out_rows) or '<tr><td colspan=3>None</td></tr>'}</tbody></table></div></section>
         </div>
-        <section><h3>Direct tests linked to this requirement</h3><div class='table-wrap'><table class='table'><thead><tr><th>TestID</th><th>Result</th><th>Procedure</th><th>Notes</th></tr></thead><tbody>{''.join(test_rows) or '<tr><td colspan=4>None</td></tr>'}</tbody></table></div></section>
+        <section><h3>Direct tests linked to this requirement</h3><div class='table-wrap'><table class='table'><thead><tr><th>TestID</th><th>Result</th><th>Test Name</th><th>Notes</th></tr></thead><tbody>{''.join(test_rows) or '<tr><td colspan=4>None</td></tr>'}</tbody></table></div></section>
         """
         write_text(out_root/requirement_url(r.external_id), layout(r.external_id, body, proj.project_name, proj.levels, depth))
 
