@@ -84,3 +84,9 @@ modules:
     requirements_module: "/ProjX/GNSS/GNSS_SD"
     tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: SA
+  - name: Antenna
+    abbrev: ANT
+    level: Module
+    requirements_module: "/ProjX/GNSS/GNSS_SD"
+    tests_module: "/ProjX/GNSS/GNSS_AT"
+    parent_abbrev: SA

@@ -105,10 +105,10 @@ def is_test_id(eid: str) -> bool:
 
 def summarize_counts(counts: Dict[str, int], total: int) -> str:
     if total == 0: return "No Tests"
-    if counts.get("Fail",0) > 0: return "Any Fail"
-    if counts.get("Partial",0) > 0: return "Partial"
-    if counts.get("Not Run",0) > 0: return "Has Not Run"
-    if counts.get("Pass",0) == total: return "All Pass"
+    if counts.get("FAILED",0) > 0: return "Any Fail"
+    if counts.get("PARTIAL",0) > 0: return "Partial"
+    if (counts.get("Not Run",0) + counts.get("NOT TESTED",0))> 0: return "NOT TESTED"
+    if counts.get("PASSED",0) == total: return "PASSED"
     return "Mixed"
 
 def slug(s: str) -> str:
@@ -167,18 +167,20 @@ def load_project(exports_root: Path, hierarchy_path: Path, project_name: str) ->
     for rf in req_files:
         for row in read_csv_rows(rf):
             #only load requirements
-            dataclass = row.get("DataClass", "")
-            if dataclass == "Mandatory" or dataclass == "Desireable" or dataclass == "Derived":
-                eid = row.get("Object Identifier", "")
-                if not eid: continue
-                mod, sd, counter = parse_external_id(eid)
-                incoming = split_links(row.get("Incoming Links", ""))
-                outgoing = split_links(row.get("Outgoing Links", ""))
-                requirements[eid] = Requirement(
-                    external_id=eid, abbrev=mod, sd=sd, counter=counter,
-                    heading=row.get("Object Heading", ""), text=row.get("Object Text", ""),
-                    incoming=incoming, outgoing=outgoing,
-                )
+            theHeader = row.get("Object Heading", "") 
+            if theHeader == "":
+                dataclass = row.get("DataClass", "")
+                if dataclass == "Mandatory" or dataclass == "Desireable" or dataclass == "Derived":
+                    eid = row.get("Object Identifier", "")
+                    if not eid: continue
+                    mod, sd, counter = parse_external_id(eid)
+                    incoming = split_links(row.get("Incoming Links", ""))
+                    outgoing = split_links(row.get("Outgoing Links", ""))
+                    requirements[eid] = Requirement(
+                        external_id=eid, abbrev=mod, sd=sd, counter=counter,
+                        heading=row.get("Object Heading", ""), text=row.get("Object Text", ""),
+                        incoming=incoming, outgoing=outgoing,
+                    )
 
     for tf in test_files:
         for row in read_csv_rows(tf):
@@ -188,7 +190,7 @@ def load_project(exports_root: Path, hierarchy_path: Path, project_name: str) ->
             if sd != "AT": continue
             tests[eid] = TestCase(
                 external_id=eid, abbrev=mod, counter=counter,
-                text=row.get("Object Text", ""), result=row.get("TestResult", "Not Run"),
+                text=row.get("Object Heading","") + row.get("Object Text", ""), result=row.get("TestResult", "Not Run"),
                 additional=row.get("TestComment", ""),
             )
 
