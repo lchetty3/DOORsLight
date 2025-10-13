@@ -1,29 +1,28 @@
-# DOORS CSV → Static HTML generator (v7)
-# Change: parse IncomingLinks/OutgoingLinks that are separated by SPACES as well as semicolons.
-# Also robust to commas and mixed separators. (Regex split: /[;,\s]+/)
-#
-# Kept: 5-level hierarchy from hierarchy.yaml, per-module tables on the "Module" level,
-# inline JS (unescaped) with working theme + filter, tooltips for req links, edit pages.
+# DOORS CSV → Static HTML generator (v9)
+# New in v9:
+# - Project Overview shows two hierarchy trees (based on parent_abbrev):
+#     * Requirements Hierarchy (uses ModuleInfo.link)
+#     * Qualification Hierarchy (uses ModuleInfo.qual_link)
+# - External link buttons appear where relevant.
+# - Robust link splitting and wide tables retained.
 
 from __future__ import annotations
-import argparse, csv, html, re
+import argparse, csv, html, re, shutil
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional, Set
 import yaml  # pip install pyyaml
-import shutil
-# Optional site-wide logo (set via --logo)
-_LOGO_SRC: Optional[str] = None
 
+_LOGO_SRC: Optional[str] = None
 
 # ─────────────────────────── Data model ───────────────────────────
 @dataclass
 class ModuleInfo:
     name: str
     abbrev: str
-    level: str                # e.g., "User Requirement", "System Requirement", "Subsystem", "Module", "Submodule"
-    link: Optional[str] = None            # NEW: external Requirements page
-    qual_link: Optional[str] = None       # NEW: external Qualification page
+    level: str
+    link: Optional[str] = None
+    qual_link: Optional[str] = None
     parent_abbrev: Optional[str] = None
 
 @dataclass
@@ -116,22 +115,57 @@ def slug(s: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", s)
     return re.sub(r"_+", "_", s).strip("_")
 
-# Accept space, semicolon, or comma as separators
 _SPLIT_RE = re.compile(r"[;,\s]+")
 def split_links(s: str) -> list[str]:
     return [t for t in _SPLIT_RE.split(s or "") if t]
 
-# NEW: render the two Confluence links if present
 def module_links_html(mi: Optional[ModuleInfo]) -> str:
-    """Render two external links for a module (Requirements, Qualification)."""
-    if not mi:
-        return ""
+    if not mi: return ""
     parts = []
-    if getattr(mi, "link", None):
+    if getattr(mi, "link", ""):
         parts.append(f"<a href='{mi.link}' target='_blank' class='btn-link'>📘 Requirements Page</a>")
-    if getattr(mi, "qual_link", None):
+    if getattr(mi, "qual_link", ""):
         parts.append(f"<a href='{mi.qual_link}' target='_blank' class='btn-link'>🧪 Qualification Results</a>")
     return f"<div class='module-links'>{' '.join(parts)}</div>" if parts else ""
+
+# Trees
+def _build_module_forest(modules: Dict[str, ModuleInfo]) -> Dict[str, list[str]]:
+    children: Dict[str, list[str]] = {k: [] for k in modules.keys()}
+    for abbr, mi in modules.items():
+        par = (mi.parent_abbrev or "").strip()
+        if par and par in children:
+            children[par].append(abbr)
+    for k in children:
+        children[k].sort()
+    return children
+
+def _find_roots(modules: Dict[str, ModuleInfo]) -> list[str]:
+    all_abbrs = set(modules.keys())
+    has_parent = set()
+    for m in modules.values():
+        if m.parent_abbrev and m.parent_abbrev in all_abbrs:
+            has_parent.add(m.abbrev)
+    roots = sorted(list(all_abbrs - has_parent))
+    return roots
+
+def _render_tree_ul(modules: Dict[str, ModuleInfo], link_attr: str) -> str:
+    children = _build_module_forest(modules)
+    roots = _find_roots(modules)
+    def node_html(abbr: str) -> str:
+        m = modules[abbr]
+        url = getattr(m, link_attr, None) or ""
+        label = f"{abbr} — {m.name}"
+        if url:
+            head = f"<a href='{url}' target='_blank' class='tree-link'>{label}</a>"
+        else:
+            head = f"<span class='tree-missing'>{label}</span>"
+        kids = children.get(abbr, [])
+        if not kids:
+            return f"<li>{head}</li>"
+        inner = ''.join(node_html(k) for k in kids)
+        return f"<li>{head}<ul>{inner}</ul></li>"
+    html = ''.join(node_html(r) for r in roots)
+    return f"<ul class='tree'>{html}</ul>"
 
 # ─────────────────────────── Loading ───────────────────────────
 def load_hierarchy(path: Path) -> Tuple[List[str], Dict[str, ModuleInfo]]:
@@ -143,8 +177,8 @@ def load_hierarchy(path: Path) -> Tuple[List[str], Dict[str, ModuleInfo]]:
             name=m["name"],
             abbrev=m["abbrev"],
             level=m["level"],
-            link=m.get("link"),               # NEW: read link
-            qual_link=m.get("qual_link"),     # NEW: read qual_link
+            link=m.get("link"),
+            qual_link=m.get("qual_link"),
             parent_abbrev=m.get("parent_abbrev"),
         )
         modules[mi.abbrev] = mi
@@ -180,7 +214,6 @@ def load_project(exports_root: Path, hierarchy_path: Path, project_name: str) ->
 
     for rf in req_files:
         for row in read_csv_rows(rf):
-            # only load requirements
             theHeader = row.get("Object Heading", "")
             if theHeader == "":
                 dataclass = row.get("DataClass", "")
@@ -243,7 +276,7 @@ def module_edit_url(mod: str) -> str: return f"edit/edit-{mod}.html"
 
 def level_url(level: str) -> str: return f"levels/{slug(level)}.html"
 
-# Inline JS (UNESCAPED!)
+# Inline JS
 DEFAULT_INLINE_JS = r"""
 (function(){
   try{ document.documentElement.setAttribute('data-js','on'); }catch(e){}
@@ -260,7 +293,6 @@ DEFAULT_INLINE_JS = r"""
 """
 
 # Shared layout
-
 def layout(title: str, body: str, project_name: str, levels: List[str], depth: int = 0) -> str:
     p = "../"*depth if depth>0 else ""
     nav_levels = "".join(f"<a href='{p}{level_url(l)}'>{escape(l)}</a>" for l in levels)
@@ -295,17 +327,29 @@ def layout(title: str, body: str, project_name: str, levels: List[str], depth: i
 """
 
 # ─────────────────────────── Pages ───────────────────────────
-
 def render_index(proj: Project, out_root: Path) -> None:
     depth=0
     cards=[f"<a class='card' href='{level_url(l)}'><h3>{escape(l)}</h3><p>Browse {escape(l.lower())} items and rollups.</p></a>" for l in proj.levels]
+    req_tree = _render_tree_ul(proj.modules, "link")
+    qual_tree = _render_tree_ul(proj.modules, "qual_link")
     body=f"""
     <h1>Project overview</h1>
     <div class='cards'>{''.join(cards)}</div>
-    
+
+    <section class='trees'>
+      <div class='tree-card'>
+        <h2>Requirements Hierarchy</h2>
+        <p class='muted small'>Parent → child based on <code>parent_abbrev</code>. Click a node to open the Confluence requirements page.</p>
+        {req_tree}
+      </div>
+      <div class='tree-card'>
+        <h2>Qualification Hierarchy</h2>
+        <p class='muted small'>Same structure, linking to qualification result pages.</p>
+        {qual_tree}
+      </div>
+    </section>
     """
     write_text(out_root/"index.html", layout("Overview", body, proj.project_name, proj.levels, depth))
-
 
 def group_requirements_by_level(proj: Project) -> Dict[str, List[Requirement]]:
     level_map: Dict[str, List[Requirement]] = {l: [] for l in proj.levels}
@@ -316,7 +360,6 @@ def group_requirements_by_level(proj: Project) -> Dict[str, List[Requirement]]:
     for lvl, lst in level_map.items():
         lst.sort(key=lambda r:(r.abbrev, r.sd, int(r.counter) if r.counter.isdigit() else r.counter))
     return level_map
-
 
 def render_level_pages(proj: Project, out_root: Path) -> None:
     depth=1; p="../"
@@ -354,7 +397,7 @@ def render_level_pages(proj: Project, out_root: Path) -> None:
                 sections.append(f"""
                 <section id='mod-{escape(mod)}'>
                   <h2>{escape(mod)} — {escape(mi.name if mi else '')}</h2>
-                  {module_links_html(mi)}  <!-- NEW: show external links on module sections -->
+                  {module_links_html(mi)}
                   <input id='tblFilter' placeholder='Filter within {escape(mod)}…' oninput='filterTable(this)' />
                   <div class='table-wrap'>
                     <table class='table'>
@@ -373,7 +416,7 @@ def render_level_pages(proj: Project, out_root: Path) -> None:
             continue
         # Other levels: single consolidated table
         mi_example = proj.modules.get(reqs[0].abbrev) if reqs else None
-        link_html = module_links_html(mi_example)  # NEW: show external links on System/URS/Subsystem pages
+        link_html = module_links_html(mi_example)
         rows=[]
         for r in reqs:
             label,_,_=proj.tests_rollup(r.external_id)
@@ -404,11 +447,10 @@ def render_level_pages(proj: Project, out_root: Path) -> None:
         """
         write_text(out_root/level_url(lvl), layout(lvl, body, proj.project_name, proj.levels, depth))
 
-
 def render_requirement_pages(proj: Project, out_root: Path) -> None:
     depth=1; p="../"
     for r in proj.requirements.values():
-        mi = proj.modules.get(r.abbrev)                 # NEW: module for this requirement
+        mi = proj.modules.get(r.abbrev)
         inc_rows=[]
         for eid in r.incoming:
             rr = proj.requirements.get(eid)
@@ -422,8 +464,7 @@ def render_requirement_pages(proj: Project, out_root: Path) -> None:
                 inc_rows.append(f"<tr class='warn'><td>{escape(eid)}</td><td colspan='2'>Broken link</td></tr>")
         out_rows=[]
         for eid in r.outgoing:
-            if is_test_id(eid):
-                continue
+            if is_test_id(eid): continue
             rr = proj.requirements.get(eid)
             if rr:
                 tip = make_tip(rr)
@@ -447,7 +488,7 @@ def render_requirement_pages(proj: Project, out_root: Path) -> None:
         all_tests_html = ", ".join(escape(tid) for tid in sorted(set(all_tids))) or "—"
         body=f"""
         <h1>{escape(r.external_id)} — {escape(r.heading)}</h1>
-        {module_links_html(mi)}   <!-- NEW: show external links on requirement page -->
+        {module_links_html(mi)}
         <p class='muted'>{escape(r.text)}</p>
         <section><h2>Consolidated tests {badge(label)}</h2><div class='counts'>{counts_html}</div><div class='muted small'>All associated tests: {all_tests_html}</div></section>
         <div class='grid'>
@@ -457,7 +498,6 @@ def render_requirement_pages(proj: Project, out_root: Path) -> None:
         <section><h3>Direct tests linked to this requirement</h3><div class='table-wrap'><table class='table'><thead><tr><th>TestID</th><th>Result</th><th>Test Name</th><th>Notes</th></tr></thead><tbody>{''.join(test_rows) or '<tr><td colspan=4>None</td></tr>'}</tbody></table></div></section>
         """
         write_text(out_root/requirement_url(r.external_id), layout(r.external_id, body, proj.project_name, proj.levels, depth))
-
 
 def render_edit_pages(proj: Project, out_root: Path) -> None:
     depth=1
@@ -470,6 +510,7 @@ def render_edit_pages(proj: Project, out_root: Path) -> None:
     write_text(out_root/"edit"/"index.html", layout("Edit links", body, proj.project_name, proj.levels, depth))
 
     for mod, reqs in by_mod.items():
+        mi = proj.modules.get(mod)
         rows=[]
         for r in reqs:
             rows.append(
@@ -479,7 +520,7 @@ def render_edit_pages(proj: Project, out_root: Path) -> None:
             )
         body=f"""
         <h1>Edit {escape(mod)} links</h1>
-        {module_links_html(proj.modules.get(mod))}  <!-- NEW: show external links on edit page -->
+        {module_links_html(mi)}
         <div class='toolbar'>
           <button class='btn' onclick=\"downloadEditedCSV('reqTable','requirements.csv')\">Download CSV</button>
           <input id='tblFilter' placeholder='Filter…' oninput='filterTable(this)' />
@@ -492,7 +533,6 @@ def render_edit_pages(proj: Project, out_root: Path) -> None:
         write_text(out_root/module_edit_url(mod), layout(f"Edit {mod}", body, proj.project_name, proj.levels, depth))
 
 # ─────────────────────────── Assets ───────────────────────────
-
 def write_assets(out_root: Path) -> None:
     write_text(out_root/"style.css", DEFAULT_CSS)
 
@@ -519,7 +559,7 @@ input#tblFilter{width:100%;padding:12px;border-radius:12px;border:1px solid var(
 .editable td[contenteditable]{outline:1px dashed var(--border);border-radius:6px;background:rgba(96,165,250,.06)}.code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}.wrap{white-space:pre-wrap}.warn{background:linear-gradient(180deg,rgba(245,158,11,.14),rgba(245,158,11,.08))}
 .chip{display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(128,128,128,.15);border:1px solid var(--border);margin-right:6px}
 .toolbar{display:flex;gap:8px;align-items:center;margin:8px 0}
-@media (max-width: 900px){ .grid{display:block} }
+@media (max-width: 900px){ .grid{grid-template-columns:1fr} }
 @media print{body{background:#fff;color:#000}.site-header,.site-footer,.toolbar,.nav{display:none!important}.card,.table-wrap{box-shadow:none}}
 /* Logo sizing/alignment */
 .site-header{display:flex;grid-template-columns:max-content 1fr auto;align-items:center;gap:36px;overflow:visible;padding:8px 16px}
@@ -527,16 +567,29 @@ input#tblFilter{width:100%;padding:12px;border-radius:12px;border:1px solid var(
 .brand .logo{height:40px;width:auto;display:block;flex:0 0 auto;max-width:none}
 .brand > span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:28ch}
 .nav{display:flex;flex-wrap:wrap;gap:12px;min-width:0}
-/* NEW: external link buttons */
+/* External link buttons */
 .module-links{display:flex;gap:12px;margin:8px 0 16px}
 .btn-link{background:var(--surface);border:1px solid var(--border);padding:6px 10px;border-radius:8px;text-decoration:none;color:var(--accent);font-weight:500;transition:background .2s,color .2s}
 .btn-link:hover{background:var(--accent);color:var(--surface)}
+/* Trees */
+.trees{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+.tree-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;box-shadow:var(--shadow)}
+.tree{list-style:none;padding-left:14px;margin:8px 0}
+.tree ul{list-style:none;margin:6px 0 6px 16px;padding-left:14px;border-left:1px dashed var(--border)}
+.tree > li{margin:6px 0}
+.tree li{position:relative;margin:6px 0}
+.tree li:before{content:"";position:absolute;left:-10px;top:0;height:100%;border-left:1px dashed var(--border)}
+.tree li:last-child:before{height:14px}
+.tree a.tree-link{text-decoration:none}
+.tree-link{color:var(--accent);font-weight:600}
+.tree-link:hover{text-decoration:underline}
+.tree-missing{color:var(--muted)}
+@media (max-width: 1100px){ .trees{grid-template-columns:1fr} }
 """
 
 # ─────────────────────────── Entry point ───────────────────────────
-
 def main():
-    ap = argparse.ArgumentParser(description="Generate a static HTML site from DOORS CSVs (v7)")
+    ap = argparse.ArgumentParser(description="Generate a static HTML site from DOORS CSVs (v9)")
     ap.add_argument("--exports", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--project-name", type=str, default="DOORS Project")
@@ -549,7 +602,6 @@ def main():
 
     proj = load_project(args.exports, hier, args.project_name)
 
-    # Handle optional logo
     global _LOGO_SRC
     if args.logo:
         assets_dir = args.out / "assets"
