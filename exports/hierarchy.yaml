@@ -11,6 +11,7 @@ modules:
     abbrev: URS
     level: User Requirement    
     link: ""
+    qual_link: ""
   - name: System Requirement
     abbrev: SYS
     level: System Requirement
@@ -22,6 +23,7 @@ modules:
     level: Subsystem
     parent_abbrev: SYS
     link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/522682396/Sensor+Array+Development+Specification+-+DOORs+Export
+    qual_link: ""
   - name: Receiver
     abbrev: RX
     level: ModuleSD"
@@ -50,28 +52,41 @@ modules:
     abbrev: RXD
     level: Module
     parent_abbrev: SA
+    link: ""
+    qual_link: "" 
   - name: Software
     abbrev: SW
     level: Module
     parent_abbrev: SA
+    link: ""
+    qual_link: ""
   - name: HMI
     abbrev: HMI
     level: Module
     parent_abbrev: SA
+    link: ""
+    qual_link: "" 
   - name: Power Distribution Unit
     abbrev: PDU
     level: Module
     parent_abbrev: SA
     link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/158335707/Sensor+Array+Power+Distribution+Unit+Item+Development+Specification
+    qual_link: ""
   - name: TOE
     abbrev: TOE
     level: Submodule
     parent_abbrev: UPC
+    link: ""
+    qual_link: ""
   - name: Transmitter
     abbrev: TX
     level: Module
     parent_abbrev: SA
+    link: ""
+    qual_link: ""
   - name: Antenna
     abbrev: ANT
     level: Module
     parent_abbrev: SA
+    link: ""
+    qual_link: "" 
