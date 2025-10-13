@@ -11,6 +11,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
+            "program": "${workspaceFolder}/src/generate_site.py",
             "args": [
                 "--exports", "./exports",
                 "--out", "./site",//"o:\\02 - System Engineering\\DOORsLight\\",

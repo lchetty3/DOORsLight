@@ -9,84 +9,69 @@ levels:
 modules:
   - name: User Requirement
     abbrev: URS
-    level: User Requirement
-    requirements_module: "/ProjX/System/SYS_RS"
-    tests_module: "/ProjX/System/SYS_AT"    
+    level: User Requirement    
+    link: ""
   - name: System Requirement
     abbrev: SYS
     level: System Requirement
-    requirements_module: "/ProjX/System/SYS_RS"
-    tests_module: "/ProjX/System/SYS_AT"
     parent_abbrev: URS
+    link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/523468801/SysRS+DOORs+Document
+    qual_link: ""
   - name: Sensor Array
     abbrev: SA
     level: Subsystem
-    requirements_module: "/ProjX/Power/PWR_SD"
-    tests_module: "/ProjX/Power/PWR_AT"
     parent_abbrev: SYS
+    link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/522682396/Sensor+Array+Development+Specification+-+DOORs+Export
   - name: Receiver
     abbrev: RX
-    level: Module
-    requirements_module: "/ProjX/Power/Regulator/REG_SD"
-    tests_module: "/ProjX/Power/Regulator/REG_AT"
+    level: ModuleSD"
     parent_abbrev: SA
+    link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/522649642/Receiver+Item+Development+Specification+-+DOORs+export
+    qual_link: ""
   - name: Synthesizer
     abbrev: SYN
     level: Module
-    requirements_module: "/ProjX/GNSS/GNSS_SD"
-    tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: SA
+    link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/536772960/Synthesizer+Item+Development+Specification
+    qual_link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/566428014/SN001+Synth+Qualification+Test+Results
   - name: DFE
     abbrev: DFE
     level: Module
-    requirements_module: "/ProjX/GNSS/GNSS_SD"
-    tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: SA
+    link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/522682396/Sensor+Array+Development+Specification+-+DOORs+Export
+    qual_link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/566427899/DFE+1+Test+Result+-+SN001
   - name: UpConverter
     abbrev: UPC
     level: Module
-    requirements_module: "/ProjX/GNSS/GNSS_SD"
-    tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: SA
+    link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/536707558/Upconverter+Item+Development+Specification
+    qual_link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/564494337/Upconverter+Test+Procedure
   - name: Receiver Distribution Unit
     abbrev: RXD
     level: Module
-    requirements_module: "/ProjX/GNSS/GNSS_SD"
-    tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: SA
   - name: Software
     abbrev: SW
     level: Module
-    requirements_module: "/ProjX/GNSS/GNSS_SD"
-    tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: SA
   - name: HMI
     abbrev: HMI
     level: Module
-    requirements_module: "/ProjX/GNSS/GNSS_SD"
-    tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: SA
   - name: Power Distribution Unit
     abbrev: PDU
     level: Module
-    requirements_module: "/ProjX/GNSS/GNSS_SD"
-    tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: SA
+    link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/158335707/Sensor+Array+Power+Distribution+Unit+Item+Development+Specification
   - name: TOE
     abbrev: TOE
     level: Submodule
-    requirements_module: "/ProjX/GNSS/GNSS_SD"
-    tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: UPC
   - name: Transmitter
     abbrev: TX
     level: Module
-    requirements_module: "/ProjX/GNSS/GNSS_SD"
-    tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: SA
   - name: Antenna
     abbrev: ANT
     level: Module
-    requirements_module: "/ProjX/GNSS/GNSS_SD"
-    tests_module: "/ProjX/GNSS/GNSS_AT"
     parent_abbrev: SA

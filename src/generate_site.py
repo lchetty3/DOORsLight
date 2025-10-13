@@ -1,9 +1,12 @@
-# DOORS CSV → Static HTML generator (v7)
-# Change: parse IncomingLinks/OutgoingLinks that are separated by SPACES as well as semicolons.
-# Also robust to commas and mixed separators. (Regex split: /[;,\s]+/)
-#
-# Kept: 5‑level hierarchy from hierarchy.yaml, per‑module tables on the "Module" level,
-# inline JS (unescaped) with working theme + filter, tooltips for req links, edit pages.
+# DOORS CSV → Static HTML generator (v8)
+# Change (v8):
+# - ModuleInfo now includes `link` and `qual_link` and these are read from hierarchy.yaml.
+# - Two link buttons ("Requirements Page", "Qualification Results") are rendered on:
+#     * Module sections within the "Module" level pages
+#     * Individual Requirement pages (using the requirement's module)
+#     * Per‑module edit pages
+# - Adds minimal CSS for .module-links and .btn-link.
+# - Keeps previous improvements: robust Incoming/Outgoing split on space/semicolon/comma, wide tables, theme, etc.
 
 from __future__ import annotations
 import argparse, csv, html, re
@@ -22,8 +25,8 @@ class ModuleInfo:
     name: str
     abbrev: str
     level: str                # e.g., "User Requirement", "System Requirement", "Subsystem", "Module", "Submodule"
-    requirements_module: str
-    tests_module: str
+    link: str                 # link to Confluence requirements page
+    qual_link: str            # link to Qualification results on Confluence
     parent_abbrev: Optional[str] = None
 
 @dataclass
@@ -128,8 +131,11 @@ def load_hierarchy(path: Path) -> Tuple[List[str], Dict[str, ModuleInfo]]:
     modules: Dict[str, ModuleInfo] = {}
     for m in data.get("modules", []):
         mi = ModuleInfo(
-            name=m["name"], abbrev=m["abbrev"], level=m["level"],
-            requirements_module=m["requirements_module"], tests_module=m["tests_module"],
+            name=m["name"],
+            abbrev=m["abbrev"],
+            level=m["level"],
+            link=m.get("link", ""),
+            qual_link=m.get("qual_link", ""),
             parent_abbrev=m.get("parent_abbrev"),
         )
         modules[mi.abbrev] = mi
@@ -166,7 +172,7 @@ def load_project(exports_root: Path, hierarchy_path: Path, project_name: str) ->
 
     for rf in req_files:
         for row in read_csv_rows(rf):
-            #only load requirements
+            # only load requirements
             theHeader = row.get("Object Heading", "") 
             if theHeader == "":
                 dataclass = row.get("DataClass", "")
@@ -229,6 +235,18 @@ def module_edit_url(mod: str) -> str: return f"edit/edit-{mod}.html"
 
 def level_url(level: str) -> str: return f"levels/{slug(level)}.html"
 
+def module_links_html(mi: Optional[ModuleInfo]) -> str:
+    """Render the two external Confluence links for a module, if present."""
+    if not mi: return ""
+    parts = []
+    if getattr(mi, "link", ""):
+        parts.append(f"<a href='{mi.link}' target='_blank' class='btn-link'>📘 Requirements Page</a>")
+    if getattr(mi, "qual_link", ""):
+        parts.append(f"<a href='{mi.qual_link}' target='_blank' class='btn-link'>🧪 Qualification Results</a>")
+    if not parts:
+        return ""
+    return "<div class='module-links'>" + " ".join(parts) + "</div>"
+
 # Inline JS (UNESCAPED!)
 DEFAULT_INLINE_JS = r"""
 (function(){
@@ -285,14 +303,13 @@ def layout(title: str, body: str, project_name: str, levels: List[str], depth: i
 def render_index(proj: Project, out_root: Path) -> None:
     depth=0
     cards=[f"<a class='card' href='{level_url(l)}'><h3>{escape(l)}</h3><p>Browse {escape(l.lower())} items and rollups.</p></a>" for l in proj.levels]
-    mods = "".join(f"<li><strong>{escape(m.abbrev)}</strong> — {escape(m.name)} ({escape(m.level)}) · <a href='{module_edit_url(m.abbrev)}'>edit links</a></li>" for m in proj.modules.values())
+    # You can uncomment "mods" if you want a quick modules list on index.
+    # mods = "".join(f"<li><strong>{escape(m.abbrev)}</strong> — {escape(m.name)} ({escape(m.level)}) · <a href='{module_edit_url(m.abbrev)}'>edit links</a></li>" for m in proj.modules.values())
     body=f"""
     <h1>Project overview</h1>
     <div class='cards'>{''.join(cards)}</div>
     
     """
-
-    # <section><h2>Modules</h2><ul>{mods}</ul></section>
     write_text(out_root/"index.html", layout("Overview", body, proj.project_name, proj.levels, depth))
 
 
@@ -343,6 +360,7 @@ def render_level_pages(proj: Project, out_root: Path) -> None:
                 sections.append(f"""
                 <section id='mod-{escape(mod)}'>
                   <h2>{escape(mod)} — {escape(mi.name if mi else '')}</h2>
+                  {module_links_html(mi)}
                   <input id='tblFilter' placeholder='Filter within {escape(mod)}…' oninput='filterTable(this)' />
                   <div class='table-wrap'>
                     <table class='table'>
@@ -393,6 +411,7 @@ def render_level_pages(proj: Project, out_root: Path) -> None:
 def render_requirement_pages(proj: Project, out_root: Path) -> None:
     depth=1; p="../"
     for r in proj.requirements.values():
+        mi = proj.modules.get(r.abbrev)
         inc_rows=[]
         for eid in r.incoming:
             rr = proj.requirements.get(eid)
@@ -431,6 +450,7 @@ def render_requirement_pages(proj: Project, out_root: Path) -> None:
         all_tests_html = ", ".join(escape(tid) for tid in sorted(set(all_tids))) or "—"
         body=f"""
         <h1>{escape(r.external_id)} — {escape(r.heading)}</h1>
+        {module_links_html(mi)}
         <p class='muted'>{escape(r.text)}</p>
         <section><h2>Consolidated tests {badge(label)}</h2><div class='counts'>{counts_html}</div><div class='muted small'>All associated tests: {all_tests_html}</div></section>
         <div class='grid'>
@@ -453,6 +473,7 @@ def render_edit_pages(proj: Project, out_root: Path) -> None:
     write_text(out_root/"edit"/"index.html", layout("Edit links", body, proj.project_name, proj.levels, depth))
 
     for mod, reqs in by_mod.items():
+        mi = proj.modules.get(mod)
         rows=[]
         for r in reqs:
             rows.append(
@@ -462,6 +483,7 @@ def render_edit_pages(proj: Project, out_root: Path) -> None:
             )
         body=f"""
         <h1>Edit {escape(mod)} links</h1>
+        {module_links_html(mi)}
         <div class='toolbar'>
           <button class='btn' onclick=\"downloadEditedCSV('reqTable','requirements.csv')\">Download CSV</button>
           <input id='tblFilter' placeholder='Filter…' oninput='filterTable(this)' />
@@ -540,12 +562,17 @@ input#tblFilter{width:100%;padding:12px;border-radius:12px;border:1px solid var(
   max-width:28ch;            /* cap text width so it can't steal space from logo */
 }
 .nav{display:flex;flex-wrap:wrap;gap:12px;min-width:0}
+
+/* New: external module link buttons */
+.module-links{display:flex;gap:12px;margin:8px 0 16px}
+.btn-link{background:var(--surface);border:1px solid var(--border);padding:6px 10px;border-radius:8px;text-decoration:none;color:var(--accent);font-weight:500;transition:background .2s,color .2s}
+.btn-link:hover{background:var(--accent);color:var(--surface)}
 """
 
 # ─────────────────────────── Entry point ───────────────────────────
 
 def main():
-    ap = argparse.ArgumentParser(description="Generate a static HTML site from DOORS CSVs (v7)")
+    ap = argparse.ArgumentParser(description="Generate a static HTML site from DOORS CSVs (v8)")
     ap.add_argument("--exports", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--project-name", type=str, default="DOORS Project")
@@ -565,9 +592,8 @@ def main():
         assets_dir.mkdir(parents=True, exist_ok=True)
         ext = args.logo.suffix.lower()
         if ext not in {".png", ".svg", ".jpg", ".jpeg", ".webp"}:
-            raise SystemExit(f"Unsupported logo type \'{ext}\'. Use PNG/SVG/JPG/WEBP.")
+            raise SystemExit(f"Unsupported logo type '{ext}'. Use PNG/SVG/JPG/WEBP.")
         dest = assets_dir / f"logo{ext}"
-        import shutil
         shutil.copyfile(args.logo, dest)
         _LOGO_SRC = f"assets/{dest.name}"
 
