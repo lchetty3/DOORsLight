@@ -26,10 +26,10 @@ modules:
     qual_link: ""
   - name: Receiver
     abbrev: RX
-    level: ModuleSD"
+    level: Module
     parent_abbrev: SA
     link: https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/522649642/Receiver+Item+Development+Specification+-+DOORs+export
-    qual_link: ""
+    qual_link: "https://reutechradarsystems.atlassian.net/wiki/spaces/GSR/pages/577929418/SN004+Receiver+1+Qualification+Test+Result+-+QTR"
   - name: Synthesizer
     abbrev: SYN
     level: Module
@@ -86,6 +86,12 @@ modules:
     qual_link: ""
   - name: Antenna
     abbrev: ANT
+    level: Module
+    parent_abbrev: SA
+    link: ""
+    qual_link: "" 
+  - name: Mechanical Enclosure
+    abbrev: ENC
     level: Module
     parent_abbrev: SA
     link: ""

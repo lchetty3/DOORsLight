@@ -1,0 +1,200 @@
+// DOORS DXL — Export all formal modules to CSV with reliable links
+// Compile-safe, no Project variable, no main() call — runs top-level.
+// Pass 1: open ALL formal modules read‑only so link traversal works.
+// Pass 2: export each module to CSV (adds Incoming/Outgoing link columns).
+// Pass 3: close all opened modules.
+
+// ===== USER SETTINGS =====
+const string OUTPUT_DIR = "C:/Temp/doors_exports";   // ensure this folder exists
+
+// ===== ATTRIBUTES TO EXPORT =====
+const int N_ATTRS = 6;
+string ATTRS[N_ATTRS];
+void initAttrs() {
+  ATTRS[0] = "Object Identifier";
+  ATTRS[1] = "DataClass";
+  ATTRS[2] = "Object Heading";
+  ATTRS[3] = "Object Text";
+  ATTRS[4] = "TestResult";
+  ATTRS[5] = "TestComment";
+}
+
+pragma encoding, "UTF-8"
+
+// ===== UTILITIES =====
+string csvClean(string s) {
+  if (null s) return "";
+  string out = "";
+  int i = 0; int L = length(s);
+  while (i < L) {
+    string c = s[i:i];
+    if (c == "\"") out = out "\"\"";      // escape quotes
+    else if (c == "\n" || c == "\r" || c == "\t") out = out " ";
+    else out = out c;
+    i++;
+  }
+  return out;
+}
+
+bool ensureDirWritable(string path) {
+  Stream t = write(path "/.touch");
+  if (null t) return false;
+  close(t);
+  deleteFile(path "/.touch");
+  return true;
+}
+
+string getAttrStr(Object o, string a) {
+  if (a == "Object Identifier") return identifier(o) "";
+  if (a == "DataClass")        return o."DataClass" "";
+  if (a == "Object Heading")   return o."Object Heading" "";
+  if (a == "Object Text")      return o."Object Text" "";  // coerces rich text to flat string
+  if (a == "TestResult")       return o."TestResult" "";  // coerces rich text to flat string
+  if (a == "TestComment")      return o."TestComment" "";  // coerces rich text to flat string
+  return "";
+}
+
+// ===== EXPORT =====
+void writeHeader(Stream s) {
+  int i = 0;
+  while (i < N_ATTRS) {
+    s << "\""; s << csvClean(ATTRS[i]); s << "\"";
+    if (i < N_ATTRS - 1) s << ",";
+    i++;
+  }
+  s << ",\"Incoming Links\",\"Outgoing Links\"\n";
+}
+
+void writeObject(Stream s, Object o) {
+  // Attributes
+  int i = 0;
+  while (i < N_ATTRS) {
+    string val = getAttrStr(o, ATTRS[i]);
+    s << "\""; s << csvClean(val); s << "\"";
+    if (i < N_ATTRS - 1) s << ",";
+    i++;
+  }
+
+  // Incoming links
+  s << ",\"";
+  bool first = true;
+  Link lin;
+  for lin in all(o <- "*") do {
+    Object src = source(lin);
+    if (!null src && !isDeleted(src)) {
+      if (!first) s << "; ";
+      first = false;
+      s << identifier(src);
+    }
+  }
+  s << "\",";
+
+  // Outgoing links
+  s << "\"";
+  first = true;
+  for lin in all(o -> "*") do {
+    Object dst = target(lin);
+    if (!null dst && !isDeleted(dst)) {
+      if (!first) s << "; ";
+      first = false;
+      s << identifier(dst);
+    }
+  }
+  s << "\"\n";
+}
+
+void exportModule(Module m) {
+  string outPath = OUTPUT_DIR "/" name(m) ".csv";
+  Stream s = write(outPath);
+  if (null s) {
+    infoBox("Cannot open output file: " outPath);
+    return;
+  }
+  writeHeader(s);
+
+  Object o;
+  for o in m do {
+    if (!null o && !isDeleted(o)) writeObject(s, o);
+  }
+  close(s);
+}
+
+// ===== RECURSIVE HELPERS =====
+void openFormalInFolder(Folder f) {
+  Item it;
+  for it in f do {
+    if (type(it) == "Formal") {
+      string fn = fullName(it);
+      Module m = read(fn, false); // read‑only
+    } else if (type(it) == "Folder") {
+      openFormalInFolder(folder(it));
+    }
+  }
+}
+
+void exportFormalInFolder(Folder f) {
+  Item it;
+  for it in f do {
+    if (type(it) == "Formal") {
+      string fn = fullName(it);
+      Module m = read(fn, false);
+      if (!null m) exportModule(m);
+    } else if (type(it) == "Folder") {
+      exportFormalInFolder(folder(it));
+    }
+  }
+}
+
+void closeFormalInFolder(Folder f) {
+  Item it;
+  for it in f do {
+    if (type(it) == "Formal") {
+      string fn = fullName(it);
+      Module m = read(fn, false);
+      if (!null m) close(m);
+    } else if (type(it) == "Folder") {
+      closeFormalInFolder(folder(it));
+    }
+  }
+}
+
+// ===== EXECUTION =====
+initAttrs();
+if (!ensureDirWritable(OUTPUT_DIR)) {
+  infoBox("Warning: OUTPUT_DIR may not be writable: " OUTPUT_DIR);
+}
+
+// Pass 1: open all formal modules under the current project
+Item itTop;
+for itTop in current Project do {
+  if (type(itTop) == "Formal") {
+    string fn = fullName(itTop);
+    Module m = read(fn, false);
+  } else if (type(itTop) == "Folder") {
+    openFormalInFolder(folder(itTop));
+  }
+}
+
+// Pass 2: export
+for itTop in current Project do {
+  if (type(itTop) == "Formal") {
+    string fn = fullName(itTop);
+    Module m = read(fn, false);
+    if (!null m) exportModule(m);
+  } else if (type(itTop) == "Folder") {
+    exportFormalInFolder(folder(itTop));
+  }
+}
+
+// Pass 3: close
+for itTop in current Project do {
+  if (type(itTop) == "Formal") {
+    string fn = fullName(itTop);
+    Module m = read(fn, false);
+    if (!null m) close(m);
+  } else if (type(itTop) == "Folder") {
+    closeFormalInFolder(folder(itTop));
+  }
+}
+
+infoBox("All done. CSVs in: " OUTPUT_DIR);

@@ -119,6 +119,12 @@ _SPLIT_RE = re.compile(r"[;,\s]+")
 def split_links(s: str) -> list[str]:
     return [t for t in _SPLIT_RE.split(s or "") if t]
 
+# ADD this helper near the other small URL helpers
+def module_anchor_url(abbr: str) -> str:
+    # index -> levels/module.html#mod-<ABBR>
+    return f"{level_url('Module')}#mod-{abbr}"
+
+
 def module_links_html(mi: Optional[ModuleInfo]) -> str:
     if not mi: return ""
     parts = []
@@ -148,12 +154,33 @@ def _find_roots(modules: Dict[str, ModuleInfo]) -> list[str]:
     roots = sorted(list(all_abbrs - has_parent))
     return roots
 
+# ADD this internal-tree renderer (next to _render_tree_ul)
+def _render_req_tree_internal(modules: Dict[str, ModuleInfo]) -> str:
+    children = _build_module_forest(modules)
+    roots = _find_roots(modules)
+
+    def node_html(abbr: str) -> str:
+        m = modules[abbr]
+        label = f"{abbr} — {m.name}"
+        url = module_anchor_url(abbr)  # always point to our rendered Module section
+        head = f"<a href='{url}' class='tree-link'>{label}</a>"
+        kids = children.get(abbr, [])
+        if not kids:
+            return f"<li>{head}</li>"
+        inner = ''.join(node_html(k) for k in kids)
+        return f"<li>{head}<ul>{inner}</ul></li>"
+
+    html = ''.join(node_html(r) for r in roots)
+    return f"<ul class='tree'>{html}</ul>"
+
+
 def _render_tree_ul(modules: Dict[str, ModuleInfo], link_attr: str) -> str:
     children = _build_module_forest(modules)
     roots = _find_roots(modules)
     def node_html(abbr: str) -> str:
         m = modules[abbr]
         url = getattr(m, link_attr, None) or ""
+        url = module_links_html(m) and url or ""
         label = f"{abbr} — {m.name}"
         if url:
             head = f"<a href='{url}' target='_blank' class='tree-link'>{label}</a>"
@@ -327,11 +354,19 @@ def layout(title: str, body: str, project_name: str, levels: List[str], depth: i
 """
 
 # ─────────────────────────── Pages ───────────────────────────
+# UPDATE render_index(): swap how req_tree is built, and tweak the help text
 def render_index(proj: Project, out_root: Path) -> None:
     depth=0
     cards=[f"<a class='card' href='{level_url(l)}'><h3>{escape(l)}</h3><p>Browse {escape(l.lower())} items and rollups.</p></a>" for l in proj.levels]
-    req_tree = _render_tree_ul(proj.modules, "link")
+
+    # OLD:
+    # req_tree = _render_tree_ul(proj.modules, "link")
+    # NEW:
+    req_tree = _render_req_tree_internal(proj.modules)
+
+    # Keep qualification tree as-is (still points to external qual_link if present)
     qual_tree = _render_tree_ul(proj.modules, "qual_link")
+
     body=f"""
     <h1>Project overview</h1>
     <div class='cards'>{''.join(cards)}</div>
@@ -339,17 +374,18 @@ def render_index(proj: Project, out_root: Path) -> None:
     <section class='trees'>
       <div class='tree-card'>
         <h2>Requirements Hierarchy</h2>
-        <p class='muted small'>Parent → child based on <code>parent_abbrev</code>. Click a node to open the Confluence requirements page.</p>
+        <p class='muted small'>Parent → child based on <code>parent_abbrev</code>. Click a node to jump to the relevant Module section in this site.</p>
         {req_tree}
       </div>
       <div class='tree-card'>
         <h2>Qualification Hierarchy</h2>
-        <p class='muted small'>Same structure, linking to qualification result pages.</p>
+        <p class='muted small'>Same structure. Links open qualification result pages.</p>
         {qual_tree}
       </div>
     </section>
     """
     write_text(out_root/"index.html", layout("Overview", body, proj.project_name, proj.levels, depth))
+
 
 def group_requirements_by_level(proj: Project) -> Dict[str, List[Requirement]]:
     level_map: Dict[str, List[Requirement]] = {l: [] for l in proj.levels}
