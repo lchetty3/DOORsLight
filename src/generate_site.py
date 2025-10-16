@@ -89,6 +89,165 @@ class Project:
         return label, counts, ids
 
 # ─────────────────────────── Helpers ───────────────────────────
+# === Add near other tiny helpers ===
+def _collect_requirements(proj) -> Dict[str, "Requirement"]:
+    """Return a flat {req_id: Requirement} mapping, regardless of how modules store them."""
+    # Prefer a top-level map if your model already has it.
+    if hasattr(proj, "requirements") and isinstance(proj.requirements, dict):
+        return proj.requirements
+    # Otherwise, gather from modules:
+    reqs = {}
+    for m in getattr(proj, "modules", {}).values():
+        for r in getattr(m, "requirements", []):
+            rid = getattr(r, "id", None) or getattr(r, "rid", None) or getattr(r, "identifier", None)
+            if rid:
+                reqs[rid] = r
+    return reqs
+
+def _collect_tests(proj) -> Dict[str, "Test"]:
+    if hasattr(proj, "tests") and isinstance(proj.tests, dict):
+        return proj.tests
+    # Fallback: some datasets store tests off modules or a list
+    tests = {}
+    if hasattr(proj, "modules"):
+        for m in proj.modules.values():
+            for t in getattr(m, "tests", []):
+                tid = getattr(t, "id", None) or getattr(t, "tid", None) or getattr(t, "identifier", None)
+                if tid:
+                    tests[tid] = t
+    return tests
+
+def _collect_req_tests_map(proj) -> Dict[str, list]:
+    """Map requirement id -> list of test ids (for coverage)."""
+    if hasattr(proj, "req_tests") and isinstance(proj.req_tests, dict):
+        return proj.req_tests
+    # Build from links if needed (tests referencing reqs)
+    req_tests = {}
+    tests = _collect_tests(proj)
+    for tid, t in tests.items():
+        linked = set()
+        for attr in ("requirements", "reqs", "links", "linked_requirements"):
+            for rid in getattr(t, attr, []) or []:
+                linked.add(str(rid))
+        for rid in linked:
+            req_tests.setdefault(rid, []).append(tid)
+    return req_tests
+
+def _collect_unique_req_links(proj) -> int:
+    """
+    Count unique directed requirement→requirement links.
+    We dedupe edges with a tuple (src, dst).
+    """
+    reqs = _collect_requirements(proj)
+    # First try explicit link storage on project
+    edges: set[tuple[str, str]] = set()
+    if hasattr(proj, "req_links"):
+        # Accept common shapes: list of (src,dst) or objects with .src/.dst
+        for L in getattr(proj, "req_links") or []:
+            if isinstance(L, (tuple, list)) and len(L) == 2:
+                a, b = map(str, L)
+                if a and b and a != b:
+                    edges.add((a, b))
+            else:
+                a = str(getattr(L, "src", "") or getattr(L, "from_id", ""))
+                b = str(getattr(L, "dst", "") or getattr(L, "to_id", ""))
+                if a and b and a != b:
+                    edges.add((a, b))
+
+    # Also infer from per-requirement incoming/outgoing fields if present
+    for rid, r in reqs.items():
+        # Outgoing
+        for dst in getattr(r, "out_links", []) or getattr(r, "outgoing", []) or []:
+            d = str(dst)
+            if d and d != rid:
+                edges.add((rid, d))
+        # Incoming
+        for src in getattr(r, "in_links", []) or getattr(r, "incoming", []) or []:
+            s = str(src)
+            if s and s != rid:
+                edges.add((s, rid))
+
+    return len(edges)
+
+def _overview_stats(proj) -> dict:
+    modules = getattr(proj, "modules", {}) or {}
+    reqs = _collect_requirements(proj)
+    tests = _collect_tests(proj)
+    req_tests = _collect_req_tests_map(proj)
+
+    n_modules = len(modules)
+    n_requirements = len(reqs)
+    n_tests = len(tests)
+    n_links = _collect_unique_req_links(proj)
+
+    # Coverage: requirements with ≥1 linked test
+    with_tests = sum(1 for rid in reqs if len(req_tests.get(rid, [])) > 0)
+    coverage_pct = (100.0 * with_tests / n_requirements) if n_requirements else 0.0
+
+    return {
+        "modules": n_modules,
+        "requirements": n_requirements,
+        "tests": n_tests,
+        "links": n_links,
+        "req_with_tests": with_tests,
+        "req_coverage_pct": coverage_pct,
+    }
+
+def _stats_html(stats: dict) -> str:
+    # A compact, responsive grid of stat cards
+    return f"""
+    <section class='stats'>
+      <h2>Project statistics</h2>
+      <div class='stats-grid'>
+        <div class='stat'><div class='stat-num'>{stats["requirements"]:,}</div><div class='stat-label'>Requirements</div></div>
+        <div class='stat'><div class='stat-num'>{stats["links"]:,}</div><div class='stat-label'>Req→Req Links</div></div>
+        <div class='stat'><div class='stat-num'>{stats["tests"]:,}</div><div class='stat-label'>Test Cases</div></div>
+        <div class='stat'><div class='stat-num'>{stats["modules"]:,}</div><div class='stat-label'>Modules</div></div>
+        <div class='stat wide'>
+          <div class='stat-num'>{stats["req_with_tests"]:,} / {stats["requirements"]:,}</div>
+          <div class='stat-label'>Requirements linked to ≥1 test</div>
+          <div class='bar'><div class='bar-fill' style='width:{stats["req_coverage_pct"]:.1f}%'></div></div>
+          <div class='pct'>{stats["req_coverage_pct"]:.1f}% coverage</div>
+        </div>
+      </div>
+    </section>
+    """
+
+# Add a touch of CSS (drop into your global <style> or CSS bundle)
+STATS_CSS = """
+.stats { margin: 1.5rem 0 2rem; }
+.stats h2 { margin-bottom: .75rem; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap: .75rem;
+}
+.stat {
+  background: var(--card-bg, #1e1e1e08);
+  border: 1px solid var(--card-border, #ccc3);
+  border-radius: .75rem;
+  padding: .9rem 1rem;
+  box-shadow: var(--card-shadow, 0 1px 2px rgba(0,0,0,.06));
+}
+.stat .stat-num { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.stat .stat-label { font-size: .9rem; opacity: .75; margin-top: .25rem; }
+.stat.wide { grid-column: span 2; }
+.bar {
+  height: .5rem;
+  background: var(--muted, #8883);
+  border-radius: .35rem;
+  margin-top: .6rem;
+  overflow: hidden;
+}
+.bar-fill { height: 100%; background: var(--accent, #2b8a3e); }
+.pct { font-size: .85rem; opacity: .8; margin-top: .25rem; }
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .stat.wide { grid-column: span 2; }
+}
+"""
+
+
 def parse_external_id(eid: str):
     parts = (eid or "").strip().split("-")
     if len(parts) < 3:
@@ -320,71 +479,95 @@ DEFAULT_INLINE_JS = r"""
 """
 
 # Shared layout
-def layout(title: str, body: str, project_name: str, levels: List[str], depth: int = 0) -> str:
-    p = "../"*depth if depth>0 else ""
-    nav_levels = "".join(f"<a href='{p}{level_url(l)}'>{escape(l)}</a>" for l in levels)
-    logo_html = f"<img class=\"logo\" src=\"{p}{_LOGO_SRC}\" alt=\"{escape(project_name)} logo\"/>" if _LOGO_SRC else ""
-    return f"""<!DOCTYPE html>
+# === Update your layout() or global CSS injection to include STATS_CSS once ===
+def layout(title: str, body: str, project_name: str, levels: list[str], depth: int) -> str:
+    # Compute relative prefix for assets/links
+    p = "../" * max(0, int(depth))
+
+    # Top nav: links to each level page
+    nav_links = " ".join(f"<a href='{p}{level_url(l)}'>{escape(l)}</a>" for l in levels)
+
+    # Optional logo
+    logo = f"<img class='logo' src='{p}{_LOGO_SRC}' alt='Logo' />" if _LOGO_SRC else ""
+
+    # Styles: external main CSS + inline stats CSS
+    styles = f"""
+    <link rel="stylesheet" href="{p}style.css" />
+    <style>
+      {STATS_CSS}
+    </style>
+    """
+
+    # Return a full HTML document
+    return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{escape(project_name)} · {escape(title)}</title>
-  <link rel="stylesheet" href="{p}style.css" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{escape(project_name)} — {escape(title)}</title>
+  {styles}
 </head>
 <body>
-<header class="site-header">
-  <div class="brand">{logo_html}<span>{escape(project_name)}</span></div>
-  <nav class="nav">
-    <a href="{p}index.html">Overview</a>
-    {nav_levels}
-    
-  </nav>
-  <button id="themeToggle" class="btn" aria-label="Toggle theme">☀️</button>
-</header>
-<main class="container">
-{body}
-</main>
-<footer class="site-footer">Generated by DOORS CSV → HTML generator</footer>
-<script>
-{DEFAULT_INLINE_JS}
-</script>
+  <header class="site-header">
+    <div class="brand">{logo}<span>{escape(project_name)}</span></div>
+    <nav class="nav">{nav_links}</nav>
+    <button id="themeToggle" class="btn" title="Toggle dark/light">☀️</button>
+  </header>
+
+  <main class="container">
+    {body}
+  </main>
+
+  <footer class="site-footer">
+    <div class="muted small">Generated by DOORsLight • {escape(project_name)}</div>
+    <div class="muted small">Theme + filter JS is inline</div>
+  </footer>
+
+  <script>{DEFAULT_INLINE_JS}</script>
 </body>
-</html>
-"""
+</html>"""
+
+
 
 # ─────────────────────────── Pages ───────────────────────────
-# UPDATE render_index(): swap how req_tree is built, and tweak the help text
+# === Update render_index() to compute + show stats near the top ===
 def render_index(proj: Project, out_root: Path) -> None:
-    depth=0
-    cards=[f"<a class='card' href='{level_url(l)}'><h3>{escape(l)}</h3><p>Browse {escape(l.lower())} items and rollups.</p></a>" for l in proj.levels]
+    depth = 0
 
-    # OLD:
-    # req_tree = _render_tree_ul(proj.modules, "link")
-    # NEW:
+    # Cards to levels
+    cards = [f"<a class='card' href='{level_url(l)}'><h3>{escape(l)}</h3><p>Browse {escape(l.lower())} items and rollups.</p></a>"
+             for l in proj.levels]
+
+    # Trees (internal req tree; existing qual tree)
     req_tree = _render_req_tree_internal(proj.modules)
-
-    # Keep qualification tree as-is (still points to external qual_link if present)
     qual_tree = _render_tree_ul(proj.modules, "qual_link")
 
-    body=f"""
+    # NEW: compute stats
+    stats = _overview_stats(proj)
+    stats_block = _stats_html(stats)
+
+    body = f"""
     <h1>Project overview</h1>
+
+    {stats_block}
+
     <div class='cards'>{''.join(cards)}</div>
 
     <section class='trees'>
       <div class='tree-card'>
         <h2>Requirements Hierarchy</h2>
-        <p class='muted small'>Parent → child based on <code>parent_abbrev</code>. Click a node to jump to the relevant Module section in this site.</p>
+        <p class='muted small'>Parent → child via <code>parent_abbrev</code>. Click to jump within this site.</p>
         {req_tree}
       </div>
       <div class='tree-card'>
         <h2>Qualification Hierarchy</h2>
-        <p class='muted small'>Same structure. Links open qualification result pages.</p>
+        <p class='muted small'>Same structure; links open qualification result pages.</p>
         {qual_tree}
       </div>
     </section>
     """
-    write_text(out_root/"index.html", layout("Overview", body, proj.project_name, proj.levels, depth))
+    write_text(out_root / "index.html", layout("Overview", body, proj.project_name, proj.levels, depth))
+
 
 
 def group_requirements_by_level(proj: Project) -> Dict[str, List[Requirement]]:
